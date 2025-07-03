@@ -1,11 +1,11 @@
-
 FROM python:3.10-slim
 
 WORKDIR /app
 
 COPY app.py .
-COPY index.html .
 COPY requirements.txt .
+COPY templates ./templates
+COPY static ./static
 
 RUN pip install --no-cache-dir -r requirements.txt
 
