@@ -44,7 +44,7 @@ pipeline {
                     echo "Docker containers running:"
                     docker ps
                     echo "Docker logs for app container:"
-                    docker logs $(docker ps -q --filter "name=cal-1") || true
+                    docker logs $(docker ps -q --filter "name=calculator-cal-1") || true
                 '''
             }
         }
@@ -87,8 +87,7 @@ pipeline {
                 sh '''
                     python3 -m venv myenv &&
                     . myenv/bin/activate &&
-                    pip install --upgrade pip selenium &&
-                
+                    pip install --upgrade pip selenium
                 '''
             }
         }
