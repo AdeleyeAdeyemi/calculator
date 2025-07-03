@@ -4,6 +4,7 @@ services:
   calculator:
     build: .
     ports:
-      - "${APP_PORT:-8877}:8777"
+      - "8877:8777"
     volumes:
-      - ./index.html:/app/index.html:ro
+      - ./templates:/app/templates:ro
+      - ./static:/app/static:ro
