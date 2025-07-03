@@ -4,7 +4,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/Undefinedboss/ade'
+                git branch: 'main', url: 'https://github.com/Undefinedboss/calculator'
             }
         }
 
@@ -44,7 +44,7 @@ pipeline {
                     echo "Docker containers running:"
                     docker ps
                     echo "Docker logs for app container:"
-                    docker logs $(docker ps -q --filter "name=newnew-world_of_games2-1") || true
+                    docker logs $(docker ps -q --filter "name=cal-1") || true
                 '''
             }
         }
@@ -53,7 +53,7 @@ pipeline {
             steps {
                 sh '''
                     echo "Installed Python packages inside the container:"
-                    docker exec $(docker ps -q --filter "name=newnew-world_of_games2-1") pip list || true
+                    docker exec $(docker ps -q --filter "name=calculator-cal-1") pip list || true
                 '''
             }
         }
@@ -75,7 +75,7 @@ pipeline {
                         }
                     }
                     if (!success) {
-                        sh 'docker logs $(docker ps -q --filter "name=newnew-world_of_games2-1") || true'
+                        sh 'docker logs $(docker ps -q --filter "name=calculator-cal-1") || true'
                         error "App did not become ready in time"
                     }
                 }
