@@ -44,7 +44,7 @@ pipeline {
                     echo "Docker containers running:"
                     docker ps
                     echo "Docker logs for app container:"
-                    docker logs $(docker ps -q --filter "name=calculator-cal-1") || true
+                    docker logs $(docker ps -q --filter "name=calculator-calculator-1") || true
                 '''
             }
         }
@@ -53,7 +53,7 @@ pipeline {
             steps {
                 sh '''
                     echo "Installed Python packages inside the container:"
-                    docker exec $(docker ps -q --filter "name=calculator-cal-1") pip list || true
+                    docker exec $(docker ps -q --filter "name=calculator-calculator-1") pip list || true
                 '''
             }
         }
@@ -66,7 +66,7 @@ pipeline {
                     def success = false
                     for (int i = 0; i < maxRetries; i++) {
                         try {
-                            sh 'curl -sf http://localhost:8777 > /dev/null'
+                            sh 'curl -sf http://localhost:8877 > /dev/null'
                             success = true
                             break
                         } catch (Exception e) {
@@ -75,7 +75,7 @@ pipeline {
                         }
                     }
                     if (!success) {
-                        sh 'docker logs $(docker ps -q --filter "name=calculator-cal-1") || true'
+                        sh 'docker logs $(docker ps -q --filter "name=calculator-calculator-1") || true'
                         error "App did not become ready in time"
                     }
                 }
@@ -99,3 +99,4 @@ pipeline {
         }
     }
 }
+
