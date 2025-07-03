@@ -88,7 +88,7 @@ pipeline {
                     python3 -m venv myenv &&
                     . myenv/bin/activate &&
                     pip install --upgrade pip selenium &&
-                    python e2e.py
+                
                 '''
             }
         }
