@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  world_of_games2:
+    build: .
+    ports:
+      - "${APP_PORT:-8777}:8777"
+    volumes:
+      - ./Scores.txt:/app/Scores.txt:ro
