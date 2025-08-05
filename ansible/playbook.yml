@@ -25,10 +25,11 @@
 
     - name: Clone GitHub repo
       git:
-        repo: https://github.com/AdeleyeAdeyemi/e-commerce.git
-        dest: /home/ec2-user/e-commerce
+        repo: https://github.com/AdeleyeAdeyemi/calculator.git
+        dest: /home/ec2-user/calculator
 
     - name: Run Docker Compose
       command: docker-compose up -d
       args:
-        chdir: /home/ec2-user/e-commerce
+        chdir: /home/ec2-user/calculator
+
