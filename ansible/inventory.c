@@ -1,0 +1,2 @@
+[web]
+<instance-public-ip>
