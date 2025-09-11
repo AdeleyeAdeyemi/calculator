@@ -2,122 +2,147 @@ pipeline {
     agent any
 
     environment {
-        TF_VAR_region = 'eu-west-2'  // Global Terraform variable
+        TERRAFORM_DIR = "terraform"
+        PEM_CREDENTIALS_ID = "aws-pem-key"   /* Jenkins credential ID for PEM file */
+        AWS_CREDENTIALS_ID = "aws-credentials"
+        BRANCH_NAME = "main"
+        REGION = "us-west-2"
+        IMAGE_TAG = "latest"
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('Checkout SCM') {
             steps {
-                git branch: 'main', url: 'https://github.com/AdeleyeAdeyemi/calculator'
+                checkout([$class: 'GitSCM',
+                    branches: [[name: "*/${BRANCH_NAME}"]],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/AdeleyeAdeyemi/calculator',
+                        credentialsId: "${AWS_CREDENTIALS_ID}"
+                    ]]
+                ])
             }
         }
 
-        stage('Provision Infrastructure') {
+        stage('Terraform Init & Apply') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'aws-credentials', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    dir('terraform') {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${AWS_CREDENTIALS_ID}",
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
+                    dir("${TERRAFORM_DIR}") {
                         sh '''
-                            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-                            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-                            
                             terraform init
-                            
-                            terraform apply -auto-approve \
-                                -var="aws_access_key=${AWS_ACCESS_KEY_ID}" \
-                                -var="aws_secret_key=${AWS_SECRET_ACCESS_KEY}" \
-                                -var="vpc_id=your-vpc-id"    # <-- Replace with your actual VPC ID
+                            terraform apply -auto-approve
                         '''
                     }
                 }
             }
         }
 
-        stage('Configure & Deploy with Ansible') {
+        stage('Prepare Ansible Inventory') {
             steps {
-                dir('ansible') {
-                    sh 'ansible-playbook -i inventory.ini playbook.yml'
+                script {
+                    def publicIp = sh(script: "terraform -chdir=${TERRAFORM_DIR} output -raw public_ip", returnStdout: true).trim()
+                    def pemFile = "${TERRAFORM_DIR}/jenkins-key.pem"
+                    sh "chmod 600 ${pemFile}"
+
+                    def inventory = """
+all:
+  hosts:
+    ${publicIp}:
+      ansible_user: ec2-user
+      ansible_ssh_private_key_file: ${pemFile}
+      ansible_python_interpreter: /usr/bin/python3
+      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+"""
+                    writeFile file: 'inventory_generated.yml', text: inventory
+                    echo "Ansible inventory created:\n${inventory}"
                 }
             }
         }
 
-        stage('Build App') {
+        stage('Configure & Deploy with Ansible') {
             steps {
-                sh 'chmod +x build.sh && ./build.sh'
+                sh 'ansible-playbook -i inventory_generated.yml ansible/playbook.yml'
             }
         }
+
+        stage('Build & Run Docker') {
+            steps {
+                sh 'docker compose up -d --remove-orphans'
+               
+            }
+        } 
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    def result = sh(script: 'docker compose build --no-cache', returnStatus: true)
-                    if (result != 0) {
-                        sh 'docker compose logs || true'
-                        error 'Docker Compose build failed'
+                    def buildResult = sh(script: 'docker build -t calculator-app:latest .', returnStatus: true)
+                    if (buildResult != 0) {
+                        sh 'docker logs $(docker ps -q --filter "name=calculator-app") || true'
+                        error "Docker build failed"
                     }
                 }
             }
         }
 
-        stage('Run Containers') {
-            steps {
-                script {
-                    def result = sh(script: 'docker compose up -d', returnStatus: true)
-                    if (result != 0) {
-                        sh 'docker compose logs || true'
-                        error 'Failed to start containers with Docker Compose'
-                    }
-                }
-            }
-        }
-
-        stage('Verify Docker & Flask Status') {
+        stage('Verify Image') {
             steps {
                 sh '''
-                    echo "Running containers:"
-                    docker ps
-
-                    echo "Flask container logs:"
-                    docker logs $(docker ps -q --filter "name=calculator") || true
-
-                    echo "Installed Python packages:"
-                    docker exec $(docker ps -q --filter "name=calculator") pip list || true
+                    docker run --rm calculator-app:latest python3 --version
+                    docker run --rm calculator-app:latest pip list
                 '''
             }
         }
+        
 
-        stage('Wait for App to be Ready') {
+        stage('Push to Docker Hub') {
             steps {
-                script {
-                    def maxRetries = 20
-                    def waitSeconds = 6
-                    def ready = false
-
-                    for (int i = 0; i < maxRetries; i++) {
-                        def result = sh(script: 'curl -sf http://localhost:8977 || true', returnStatus: true)
-                        if (result == 0) {
-                            echo "App is ready"
-                            ready = true
-                            break
-                        } else {
-                            echo "App not ready, waiting ${waitSeconds}s..."
-                            sleep(waitSeconds)
-                        }
-                    }
-
-                    if (!ready) {
-                        sh 'docker logs $(docker ps -q --filter "name=calculator") || true'
-                        error "App did not become ready in time"
-                    }
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials', 
+                    usernameVariable: 'DOCKER_USER', 
+                    passwordVariable: 'DOCKER_PASS')]) {
+                    sh """
+                        echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                        docker tag ecommerce-app:latest \$DOCKER_USER/calculator-app:${IMAGE_TAG}
+                        docker push \$DOCKER_USER/calculator-app:${IMAGE_TAG}
+                    """
                 }
             }
         }
 
-        stage('Test with Selenium') {
+        stage('Archive Artifacts') {
+            steps {
+                archiveArtifacts artifacts: '**/*.py', fingerprint: true
+            }
+        }
+
+        stage('Verify App & Containers') {
+            steps {
+                sh 'docker ps'
+            }
+        }
+
+        stage('Wait for App Ready') {
+            steps {
+                sh 'sleep 30'
+            }
+        }
+
+        stage('Run Selenium Tests') {
             steps {
                 sh '''
-                    python3 -m venv venv
-                    . venv/bin/activate
-                    pip install --upgrade pip selenium
+                    if [ ! -d "venv" ]; then
+                        python3 -m venv --copies --upgrade-deps venv
+                    fi
+                    chmod +x venv/bin/python3
+                    ./venv/bin/python3 -m pip install --upgrade "pip<24" setuptools wheel
+                    ./venv/bin/python3 -m pip install -r requirements.txt pytest selenium
+                    ./venv/bin/python3 -m pytest tests/selenium --maxfail=1 --disable-warnings -q
                 '''
             }
         }
@@ -125,8 +150,12 @@ pipeline {
 
     post {
         always {
-            echo "Cleaning up / restarting Docker Compose in post step"
-            sh 'docker compose up -d || true'
+            echo 'Ensuring all containers are running'
+            sh 'docker compose up -d --remove-orphans'
         }
     }
 }
+
+
+
+
